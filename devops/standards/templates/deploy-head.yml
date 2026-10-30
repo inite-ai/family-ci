@@ -1,0 +1,39 @@
+# The head of a family deploy workflow. Keep the repo's own build and deploy
+# jobs between `gate` and `verify`; make the first of them `needs: gate`.
+name: Deploy
+
+# PRODUCTION MOVES ON A RELEASE, NOT ON A MERGE (family standard, 29.10.2026).
+# `sh scripts/family.sh release` publishes one; `workflow_dispatch` is the
+# hotfix and rollback door (a dispatched tag that was released before passes
+# the gate as it is).
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+# One production, one queue. Never cancel a deploy halfway.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  gate:
+    uses: inite-ai/inite-shared/.github/workflows/release-gate.yml@main
+    permissions:
+      contents: read
+      checks: read
+      pull-requests: read
+
+  # build-and-push:
+  #   needs: gate
+  #   ... the repo's own steps, unchanged ...
+  # deploy:
+  #   needs: build-and-push
+  #   runs-on: [self-hosted, sfo]
+  #   ... the repo's own steps, unchanged ...
+
+  verify:
+    needs: deploy
+    uses: inite-ai/inite-shared/.github/workflows/verify-deploy.yml@main
+    with:
+      urls: https://example.inite

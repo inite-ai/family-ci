@@ -1,0 +1,13 @@
+name: INITE family tools
+description: |
+  Points INITE_FAMILY_DIR at devops/standards in the copy of inite-shared the
+  runner downloaded for this action, so a family repo's CI runs the shared
+  gate, CLI and release tools without a token for the private repo.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        dir=$(cd "${{ github.action_path }}/../../../devops/standards" && pwd)
+        test -f "$dir/bin/inite-standards.mjs"
+        echo "INITE_FAMILY_DIR=$dir" >> "$GITHUB_ENV"

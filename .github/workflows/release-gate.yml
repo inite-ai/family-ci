@@ -1,0 +1,58 @@
+# Called first by every family deploy workflow:
+#
+#   gate:
+#     uses: inite-ai/family-ci/.github/workflows/release-gate.yml@main
+#     permissions: { contents: read, checks: read, pull-requests: read }
+#
+# A deploy goes out only for a commit main took through a green `ci`: the
+# commit's own check, or that of the PR it was merged from. A dispatch of a
+# tag that was released before (a rollback) passes as it is: it passed when it
+# was released.
+name: family release gate
+
+on:
+  workflow_call:
+    outputs:
+      tag:
+        description: The release tag (or the dispatched ref).
+        value: ${{ jobs.gate.outputs.tag }}
+
+# Reads the release (contents), the commit's ci check run (checks), and the
+# PR a squash merge came from (pull-requests): without the last, every
+# release of a merged PR is refused with a 403 (v2026.10.29 of estate,
+# services, strateg, initeaudit and shop, 29.10.2026).
+permissions:
+  contents: read
+  checks: read
+  pull-requests: read
+
+jobs:
+  gate:
+    name: release gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      tag: ${{ steps.verdict.outputs.tag }}
+    steps:
+      - name: Family tools
+        uses: inite-ai/family-ci/.github/actions/family@main
+      - name: Is this commit green on ci
+        id: verdict
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          echo "tag=$REF_NAME" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = workflow_dispatch ] && [ "$REF_TYPE" = tag ] && gh release view "$REF_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            echo "✓ $REF_NAME is a published release: a rollback or a redeploy, allowed."
+            exit 0
+          fi
+          v=$(node "$INITE_FAMILY_DIR/bin/inite-standards.mjs" ci-verdict "$REPO" "$SHA") || {
+            echo "::error::$SHA has no green ci check ($v). Production takes only what main took through ci."
+            exit 1
+          }
+          echo "✓ ${SHA:0:8}: ci $v"

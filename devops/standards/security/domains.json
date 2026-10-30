@@ -1,0 +1,32 @@
+{
+  "_": "Every family site the weekly security scan reads from outside (security-scan.yml). A new site is added in the PR that ships it.",
+  "sites": [
+    "https://inite.ai",
+    "https://auth.inite.ai",
+    "https://auth-api.inite.ai",
+    "https://billing.inite.ai",
+    "https://brain.inite.ai",
+    "https://bloom.inite.ai",
+    "https://llms.inite.ai",
+    "https://inite.rent",
+    "https://inite.shop",
+    "https://inite.food",
+    "https://inite.travel",
+    "https://inite.estate",
+    "https://inite.health",
+    "https://inite.events",
+    "https://inite.club",
+    "https://inite.solutions",
+    "https://inite.education",
+    "https://inite.services",
+    "https://inite.studio",
+    "https://inite.training",
+    "https://inite.digital",
+    "https://break3.inite.health",
+    "https://break3-api.inite.health",
+    "https://admin.break3.inite.health",
+    "https://mikefluff.com",
+    "https://voice.inite.solutions",
+    "https://wiki.inite.club"
+  ]
+}

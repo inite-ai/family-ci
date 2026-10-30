@@ -1,0 +1,39 @@
+{
+ "next": "16.4.3",
+ "nodeMin": 22,
+ "scripts": {
+  "lint": "sh scripts/family.sh lint",
+  "release": "sh scripts/family.sh release"
+ },
+ "introduced": {
+  "auth-kit": "2026-12-31",
+  "auth-no-local-credentials": "2026-12-31",
+  "auth-no-own-jwt": "2026-12-31",
+  "auth-no-hs256": "2026-12-31",
+  "auth-no-browser-tokens": "2026-12-31"
+ },
+ "repos": [
+  { "repo": "initeestate-landing", "profile": "next" },
+  { "repo": "initerent", "profile": "next" },
+  { "repo": "initeshop", "profile": "next" },
+  { "repo": "initesport", "profile": "next" },
+  { "repo": "initeservices", "profile": "next" },
+  { "repo": "bloomcheck", "profile": "next" },
+  { "repo": "content-generator", "profile": "next" },
+  { "repo": "initehealth-landing", "profile": "next" },
+  { "repo": "initetravel", "profile": "next" },
+  { "repo": "initevents-landing", "profile": "next" },
+  { "repo": "initefood", "profile": "next" },
+  { "repo": "initeclub-landing", "profile": "next" },
+  { "repo": "initesolutions-landing", "profile": "next" },
+  { "repo": "initeaudit", "profile": "node" },
+  { "repo": "initeeducation-landing", "profile": "next" },
+  { "repo": "break3-frontend", "profile": "node" },
+  { "repo": "break3-backend", "profile": "node" },
+  { "repo": "inite-auth-service", "profile": "node" },
+  { "repo": "inite-billing-service", "profile": "node" },
+  { "repo": "inite-brain-service", "profile": "node" },
+  { "repo": "strateg", "profile": "python" },
+  { "repo": "initeai-landing", "profile": "next", "own": "keeps its own gate (scripts/gate.sh, status `gate`) and release (scripts/release.sh)" }
+ ]
+}

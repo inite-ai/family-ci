@@ -1,0 +1,94 @@
+# Called last by every family deploy workflow, from outside the host:
+#
+#   verify:
+#     needs: deploy
+#     uses: inite-ai/family-ci/.github/workflows/verify-deploy.yml@main
+#     with:
+#       urls: https://inite.shop https://inite.shop/api/health
+#
+# Each URL must answer below 400 within the timeout (redirects are not
+# followed: a 3xx is an answer). With `expect`, the first URL's body must
+# contain it - e.g. the commit, when the app reports one.
+#
+# Then the first URL's site is read the way an attacker reads it
+# (inite-standards probe): HSTS, CSP without inline scripts, frame-ancestors,
+# referrer and permissions policy, cookie flags, and /.env, /.git, source
+# maps not served. Reported as warnings; `probe-enforce: true` fails the
+# deploy on them (the family baseline makes it the default once a site
+# mounts securityHeaders()).
+name: family verify deploy
+
+on:
+  workflow_call:
+    inputs:
+      urls:
+        description: URLs, space or newline separated.
+        type: string
+        required: true
+      expect:
+        description: Text the first URL's body must contain.
+        type: string
+        default: ''
+      timeout-seconds:
+        type: number
+        default: 300
+      probe-enforce:
+        description: Fail the deploy when the security probe finds a problem (otherwise warnings).
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Production answers
+        env:
+          URLS: ${{ inputs.urls }}
+          EXPECT: ${{ inputs.expect }}
+          TIMEOUT: ${{ inputs.timeout-seconds }}
+        run: |
+          set -u
+          deadline=$(( $(date +%s) + TIMEOUT ))
+          first=1
+          status=0
+          for url in $URLS; do
+            while :; do
+              code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 -A 'inite-verify-deploy/1' "$url" 2>/dev/null || echo 000)
+              ok=0
+              if [ "$code" -ge 200 ] && [ "$code" -lt 400 ]; then
+                ok=1
+                if [ "$first" = 1 ] && [ -n "$EXPECT" ] && ! grep -qF "$EXPECT" /tmp/body; then ok=0; fi
+              fi
+              if [ "$ok" = 1 ]; then echo "✓ $url $code"; break; fi
+              if [ "$(date +%s)" -ge "$deadline" ]; then
+                echo "::error::$url answered $code${EXPECT:+ (expected text: $EXPECT)} until the timeout"
+                status=1
+                break
+              fi
+              sleep 10
+            done
+            first=0
+          done
+          exit "$status"
+
+      - name: Family tools
+        uses: inite-ai/family-ci/.github/actions/family@main
+      - name: Security probe
+        env:
+          URLS: ${{ inputs.urls }}
+          ENFORCE: ${{ inputs.probe-enforce && '1' || '0' }}
+        run: |
+          first=$(printf '%s\n' $URLS | head -1)
+          origin=$(node -e 'console.log(new URL(process.argv[1]).origin)' "$first")
+          if node "$INITE_FAMILY_DIR/bin/inite-standards.mjs" probe "$origin" > /tmp/probe.md; then
+            cat /tmp/probe.md
+            exit 0
+          fi
+          cat /tmp/probe.md >> "$GITHUB_STEP_SUMMARY"
+          grep '^- ' /tmp/probe.md | sed 's/^- /::warning::/'
+          [ "$ENFORCE" = 1 ] && exit 1 || exit 0
