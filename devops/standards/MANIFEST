@@ -6,6 +6,8 @@ lib/audit.mjs
 lib/auth-rules.mjs
 lib/checks.mjs
 lib/drift.mjs
+lib/host-safety.mjs
+lib/payment-rules.mjs
 lib/pin.mjs
 lib/probe.mjs
 lib/ratchets.mjs

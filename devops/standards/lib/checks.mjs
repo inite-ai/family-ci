@@ -9,6 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AUTH_RULES } from './auth-rules.mjs';
+import { HOST_RULE } from './host-safety.mjs';
+import { PAYMENT_RULES } from './payment-rules.mjs';
 import { checkPins } from './pin.mjs';
 import { checkLintRecord, checkSizes } from './ratchets.mjs';
 import { CONFIG, deployWorkflows, PROFILES } from './repo.mjs';
@@ -255,9 +257,13 @@ export const RULES = [
       return /family\.sh gate/.test(text) ? [] : [`${hook} does not run \`sh scripts/family.sh gate\``];
     },
   },
+  // A deploy removes only what it created (lib/host-safety.mjs; 25.10 and 30.10.2026).
+  HOST_RULE,
   // The security baseline (lib/security.mjs, .planning/family-security-baseline-2026-10.md).
   ...SECURITY_RULES,
   ...AUTH_RULES,
+  // Every payment through billing (.planning/family-subscriptions-2026-10.md).
+  ...PAYMENT_RULES,
 ];
 
 /**

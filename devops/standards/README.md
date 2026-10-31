@@ -8,7 +8,7 @@ implementation, and it is not a workspace package on purpose: a new
 | Path | What |
 |---|---|
 | `bin/inite-standards.mjs` | the CLI: `check`, `lint`, `sizes`, `protection`, `ci-verdict`, `drift`, `rules` |
-| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads |
+| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads, what a deploy may remove on the shared host (`host-safety.mjs`) |
 | `family/family.sh` | the wrapper every repo carries as `scripts/family.sh`, byte for byte |
 | `family/gate.sh` | the one list of checks: pre-commit (`GATE_SCOPE=commit`) and CI (full) |
 | `family/release.sh` | CalVer GitHub release of main's head, the only thing that deploys |

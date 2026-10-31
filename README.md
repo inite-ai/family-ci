@@ -6,4 +6,4 @@ The INITE family's shared CI tools, public so that public family repos can call 
 `ci.yml`, `release-gate.yml`, `verify-deploy.yml`, the `family` action and `devops/standards`.
 `devops/standards/sync-family-ci.sh` in inite-shared writes this repo.
 
-Mirrored from inite-shared@ef2e3ee0da691edbc13a4965ac901a24703ba95e.
+Mirrored from inite-shared@41cfee45a39777620a6d0142a2a86086b99cbc7b.

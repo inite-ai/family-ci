@@ -10,7 +10,10 @@
   "auth-no-local-credentials": "2026-12-31",
   "auth-no-own-jwt": "2026-12-31",
   "auth-no-hs256": "2026-12-31",
-  "auth-no-browser-tokens": "2026-12-31"
+  "auth-no-browser-tokens": "2026-12-31",
+  "payments-through-billing": "2026-12-31",
+  "payments-no-price-literals": "2026-12-31",
+  "payments-no-mock": "2026-12-31"
  },
  "repos": [
   { "repo": "initeestate-landing", "profile": "next" },
