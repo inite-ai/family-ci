@@ -11,7 +11,7 @@ import { after, describe, it } from 'node:test';
 
 import { advisories, auditProblems } from '../lib/audit.mjs';
 import { check } from '../lib/checks.mjs';
-import { EXPOSED, headerProblems, report } from '../lib/probe.mjs';
+import { EXPOSED, hasWwwTwin, headerProblems, report, wwwProblems } from '../lib/probe.mjs';
 import { loadRepo } from '../lib/repo.mjs';
 import { credentialFileProblems } from '../lib/secrets.mjs';
 import { compareSinks, finalUser, permissionProblems, prTargetProblems, sinksIn, unpinnedUses } from '../lib/security.mjs';
@@ -190,6 +190,19 @@ describe('the deploy probe', () => {
     const env = EXPOSED.find(([p]) => p === '/.env')[1];
     assert.equal(env('<!doctype html><html>'), false);
     assert.equal(env('DATABASE_URL=postgres://x'), true);
+  });
+  it('www goes to the https apex with no port, or answers itself', () => {
+    assert.deepEqual(wwwProblems('https://inite.ai', 301, 'https://inite.ai/x?q=1'), []);
+    assert.deepEqual(wwwProblems('https://inite.rent', 200, null), []);
+    assert.deepEqual(wwwProblems('https://inite.shop', 307, '/en'), []);
+    assert.match(wwwProblems('https://inite.club', 301, 'https://inite.club:3000/x?q=1')[0], /port 3000/);
+    assert.match(wwwProblems('https://inite.fund', 404, null)[0], /answers 404/);
+    assert.match(wwwProblems('https://inite.ai', 301, 'http://inite.ai/')[0], /https/);
+    assert.match(wwwProblems('https://inite.ai', 302, 'https://evil.example/')[0], /another host/);
+  });
+  it('only an apex has a www twin', () => {
+    assert.equal(hasWwwTwin('https://inite.club'), true);
+    assert.equal(hasWwwTwin('https://auth.inite.ai'), false);
   });
   it('reports one line per site', () => assert.match(report([{ origin: 'https://x', problems: ['no HSTS'] }], new Date('2026-10-29')), /1 of 1 sites[\s\S]*- no HSTS/));
 });

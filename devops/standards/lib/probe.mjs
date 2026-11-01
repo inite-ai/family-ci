@@ -1,6 +1,6 @@
 // What a deployed family site shows the world, read from outside: the
-// security headers on its HTML, the flags on its cookies, and paths that
-// must never answer (/.env, /.git). Used after a release (verify-deploy)
+// security headers on its HTML, the flags on its cookies, paths that
+// must never answer (/.env, /.git), and where its www twin sends people. Used after a release (verify-deploy)
 // and weekly across every family domain (security-scan.yml), reported as
 // one issue.
 //
@@ -50,6 +50,38 @@ export function headerProblems(h, { html = true } = {}) {
   return out;
 }
 
+/**
+ * The www twin of an apex site: it must send the visitor to the apex over
+ * https, with no port, keeping the path; or answer itself. Pure, for tests.
+ *
+ * 31.10.2026: www.inite.education and www.inite.club sent people to
+ * https://inite.education:3000/ (the middleware cloned nextUrl, which carries
+ * the container's port, and changed only the host); www.inite.fund was a 404.
+ */
+export function wwwProblems(apexOrigin, status, location) {
+  const apex = new URL(apexOrigin);
+  const www = `www.${apex.hostname}`;
+  if (status >= 200 && status < 300) return [];
+  if (status >= 300 && status < 400) {
+    if (!location) return [`${www} redirects (${status}) with no Location`];
+    let to;
+    try {
+      to = new URL(location, `https://${www}/x?q=1`);
+    } catch {
+      return [`${www} redirects to an unreadable Location: ${location}`];
+    }
+    const out = [];
+    if (to.port) out.push(`${www} redirects to port ${to.port} (${to.origin}): the app built the address from the container's own host`);
+    if (to.protocol !== 'https:') out.push(`${www} redirects to ${to.protocol}// rather than https`);
+    if (to.hostname !== apex.hostname && to.hostname !== www) out.push(`${www} redirects to another host, ${to.hostname}`);
+    return out;
+  }
+  return [`${www} answers ${status}: send it to https://${apex.hostname}/ (or serve it)`];
+}
+
+/** Only a registrable apex (inite.ai, mikefluff.com) has a www twin to check. */
+export const hasWwwTwin = (origin) => new URL(origin).hostname.split('.').length === 2;
+
 async function fetchText(url, ms = 15000) {
   const ctl = AbortSignal.timeout(ms);
   const res = await fetch(url, { redirect: 'follow', signal: ctl, headers: { 'user-agent': 'inite-security-probe/1 (+https://inite.ai)' } });
@@ -67,6 +99,15 @@ export async function probeSite(origin) {
     problems.push(...headerProblems(res.headers, { html }));
   } catch (e) {
     return { origin: base, problems: [`no answer: ${String(e.message ?? e).split('\n')[0]}`] };
+  }
+  if (hasWwwTwin(base)) {
+    const www = base.replace('://', '://www.');
+    try {
+      const res = await fetch(`${www}/x?q=1`, { redirect: 'manual', signal: AbortSignal.timeout(10000), headers: { 'user-agent': 'inite-security-probe/1 (+https://inite.ai)' } });
+      problems.push(...wwwProblems(base, res.status, res.headers.get('location')));
+    } catch (e) {
+      problems.push(`${new URL(www).hostname} gives no answer: ${String(e.message ?? e).split('\n')[0]}`);
+    }
   }
   for (const [p, isReal] of EXPOSED) {
     try {
