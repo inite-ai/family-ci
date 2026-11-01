@@ -38,12 +38,12 @@ export function auditRepo(name, workdir) {
   return row;
 }
 
-const mark = { ok: '✓', debt: '◐', fail: '✗', skipped: '·' };
+const mark = { ok: '✓', debt: '◐', warn: '!', fail: '✗', skipped: '·' };
 
 export function renderReport(rows, when = new Date()) {
   const ids = [...new Set(rows.flatMap((r) => r.results.map((x) => x.id)))];
   const lines = [];
-  lines.push(`Run ${when.toISOString().slice(0, 10)} by \`inite-standards drift\` (inite-shared/devops/standards). ✓ conforms, ◐ named debt, ✗ drift, · not checked.`);
+  lines.push(`Run ${when.toISOString().slice(0, 10)} by \`inite-standards drift\` (inite-shared/devops/standards). ✓ conforms, ◐ named debt, ! warning before the rule's enforce date, ✗ drift, · not checked.`);
   lines.push('');
   const failing = rows.filter((r) => r.error || r.protection.length || r.results.some((x) => x.status === 'fail'));
   lines.push(`**${rows.length - failing.length} of ${rows.length} repos conform** (debt allowed).`);

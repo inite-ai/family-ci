@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AUTH_RULES } from './auth-rules.mjs';
+import { ENV_RULES } from './env-rules.mjs';
 import { HOST_RULE } from './host-safety.mjs';
 import { PAYMENT_RULES } from './payment-rules.mjs';
 import { checkPins } from './pin.mjs';
@@ -262,6 +263,8 @@ export const RULES = [
   // The security baseline (lib/security.mjs, .planning/family-security-baseline-2026-10.md).
   ...SECURITY_RULES,
   ...AUTH_RULES,
+  // The environment contract (lib/env-rules.mjs, packages/env).
+  ...ENV_RULES,
   // Every payment through billing (.planning/family-subscriptions-2026-10.md).
   ...PAYMENT_RULES,
 ];
@@ -275,6 +278,19 @@ export const RULES = [
 export function mayStillAddDebt(id, today = new Date().toISOString().slice(0, 10)) {
   const until = FAMILY.introduced?.[id];
   return typeof until === 'string' && today <= until;
+}
+
+
+/**
+ * A rule with a family.json "enforce" date is a warning before that day: its
+ * problems are listed, but `check` and the gate pass. From the date it fails
+ * unless the repo carries it as named debt (which "introduced" lets a repo add
+ * up to the same day). So a new rule never turns the family red the day it
+ * merges (30.10.2026: new rules failed every repo and stopped releases).
+ */
+export function warnsOnly(id, today = new Date().toISOString().slice(0, 10)) {
+  const from = FAMILY.enforce?.[id];
+  return typeof from === 'string' && today < from;
 }
 
 /** Debt ids the ref did not have: new debt is refused. */
@@ -292,7 +308,7 @@ export function newDebt(repo, against) {
 }
 
 /** Runs every rule for the repo's profile. */
-export function check(repo, { against = null, offline = false, only = null } = {}) {
+export function check(repo, { against = null, offline = false, only = null, today = new Date().toISOString().slice(0, 10) } = {}) {
   const ctx = { against, notes: [] };
   const debt = repo.config.debt ?? {};
   const results = [];
@@ -312,6 +328,7 @@ export function check(repo, { against = null, offline = false, only = null } = {
     const owed = rule.id in debt;
     let status = problems.length ? 'fail' : 'ok';
     if (owed && problems.length && rule.debtable !== false) status = 'debt';
+    else if (!owed && problems.length && warnsOnly(rule.id, today)) status = 'warn';
     else if (owed && !problems.length) {
       status = 'fail';
       problems = [`paid: strike "${rule.id}" from the debt in ${CONFIG}`];

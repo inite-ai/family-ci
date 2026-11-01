@@ -2,7 +2,7 @@
 // inite-standards: the family contract, checked. Run in a family repo
 // (through `sh scripts/family.sh standards ...`) or across all of them.
 //
-//   check [--against <ref>] [--offline] [--json]   conformance of this repo
+//   check [--against <ref>] [--offline] [--json] [--today YYYY-MM-DD]   conformance of this repo (--today: as on that day)
 //   lint [--update] [--against <ref>] [--seed]      ESLint, errors held to .inite/lint-baseline.json
 //   sizes [--update] [--seed]                       the file-size ratchet alone
 //   protection <owner/repo> [--apply] [--dry]       main's protection against the contract
@@ -12,11 +12,12 @@
 //   security [--update] [--seed]                    the security sink ratchet alone
 //   audit                                           High/Critical advisories in prod deps fail (.inite/audit-allow.json)
 //   probe <url...> | --family [--issue]             security headers, cookies and exposed paths, from outside
+//   shared-env [--update]                           (in inite-shared) the env names packages/<name>/src read, held in shared-env.json
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { check, RULES } from '../lib/checks.mjs';
+import { check, FAMILY, RULES } from '../lib/checks.mjs';
 import { drift } from '../lib/drift.mjs';
 import { checkSizes, countLines, lint, LINT, seedSizes, SIZES } from '../lib/ratchets.mjs';
 import { ciVerdict, protect, protectionProblems, readProtection } from '../lib/remote.mjs';
@@ -24,6 +25,7 @@ import { deployWorkflows, loadRepo, stepCommand } from '../lib/repo.mjs';
 import { runAudit } from '../lib/audit.mjs';
 import { probeSite, report } from '../lib/probe.mjs';
 import { checkSinks, SECURITY, seedSinks } from '../lib/security.mjs';
+import { scanSharedReads, SHARED_ENV } from '../lib/env-rules.mjs';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flag = (name) => rest.includes(name);
@@ -31,31 +33,32 @@ const opt = (name) => {
   const i = rest.indexOf(name);
   return i > -1 ? rest[i + 1] : null;
 };
-const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--against', '--only'].includes(rest[i - 1])));
+const positional = rest.filter((a, i) => !a.startsWith('--') && !(i > 0 && ['--against', '--only', '--today'].includes(rest[i - 1])));
 
 function fail(msg, code = 1) {
   console.error(msg);
   process.exit(code);
 }
 
-const icon = { ok: '✓', debt: '◐', fail: '✗', skipped: '·' };
+const icon = { ok: '✓', debt: '◐', warn: '!', fail: '✗', skipped: '·' };
 
 switch (cmd) {
   case 'check': {
     const repo = loadRepo();
-    const { results, notes } = check(repo, { against: opt('--against'), offline: flag('--offline') });
+    const { results, notes } = check(repo, { against: opt('--against'), offline: flag('--offline'), ...(opt('--today') ? { today: opt('--today') } : {}) });
     if (flag('--json')) {
       console.log(JSON.stringify({ profile: repo.profile, results, notes }, null, 1));
     } else {
       for (const r of results) {
         console.log(`${icon[r.status]} ${r.id}${r.status === 'debt' ? ` (debt: ${r.reason})` : ''}`);
-        if (r.status === 'fail') for (const p of r.problems) console.log(`    ${p}`);
+        if (r.status === 'warn') console.log(`    warning until ${FAMILY.enforce[r.id]}, then it fails unless named as debt in .inite/standards.json:`);
+        if (r.status === 'fail' || r.status === 'warn') for (const p of r.problems) console.log(`    ${p}`);
       }
       for (const n of notes) console.log(`  note: ${n}`);
     }
     const failed = results.filter((r) => r.status === 'fail');
     if (failed.length) fail(`\n✗ standards: ${failed.length} rule(s) fail. Fix them; a legacy gap is named in .inite/standards.json "debt" with its reason, once, and only shrinks.`);
-    console.log(`\n✓ standards: ${repo.profile} profile, ${results.filter((r) => r.status === 'ok').length} rules met, ${results.filter((r) => r.status === 'debt').length} carried as debt`);
+    console.log(`\n✓ standards: ${repo.profile} profile, ${results.filter((r) => r.status === 'ok').length} rules met, ${results.filter((r) => r.status === 'debt').length} carried as debt${results.some((r) => r.status === 'warn') ? `, ${results.filter((r) => r.status === 'warn').length} warning(s)` : ''}`);
     break;
   }
   case 'lint': {
@@ -123,6 +126,20 @@ switch (cmd) {
   case 'deploy-workflows':
     console.log(deployWorkflows(loadRepo()).join('\n'));
     break;
+  case 'shared-env': {
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    const now = scanSharedReads(path.join(here, '..', '..', '..', 'packages'));
+    if (flag('--update')) {
+      fs.writeFileSync(path.join(here, '..', 'lib', 'shared-env.json'), JSON.stringify(now, null, 1) + '\n');
+      console.log(`shared-env.json: ${now.length} name(s)`);
+      break;
+    }
+    const added = now.filter((n) => !SHARED_ENV.includes(n));
+    const gone = SHARED_ENV.filter((n) => !now.includes(n));
+    if (added.length || gone.length) fail(`shared-env.json is stale (+${added.join(', +') || ''} -${gone.join(', -') || ''}); run with --update`);
+    console.log(`✓ shared-env.json: ${now.length} name(s)`);
+    break;
+  }
   case 'security': {
     const repo = loadRepo();
     if (flag('--seed')) {

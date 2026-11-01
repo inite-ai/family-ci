@@ -6,6 +6,7 @@ lib/audit.mjs
 lib/auth-rules.mjs
 lib/checks.mjs
 lib/drift.mjs
+lib/env-rules.mjs
 lib/host-safety.mjs
 lib/payment-rules.mjs
 lib/pin.mjs
@@ -14,6 +15,7 @@ lib/ratchets.mjs
 lib/remote.mjs
 lib/repo.mjs
 lib/secrets.mjs
+lib/shared-env.json
 lib/security.mjs
 lib/workflows.mjs
 security/domains.json
