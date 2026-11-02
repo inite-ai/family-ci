@@ -1,0 +1,22 @@
+name: INITE family deploy (host half)
+description: |
+  Runs on the self-hosted runner of the shared host, called by
+  .github/workflows/deploy-compose.yml (never by a repo directly): renders
+  the env file (mode 600) and the compose file, pulls the image by commit,
+  migrates, starts the new container beside the old one, waits for its
+  healthcheck and version, then retires the old one; or rolls back.
+  The scripts are deploy.sh and render.mjs beside this file, read from the
+  copy of inite-shared the runner downloads for this action: the host needs
+  no checkout and no token for the private repo.
+inputs:
+  command:
+    description: preflight, deploy or rollback.
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        DEPLOY_COMMAND: ${{ inputs.command }}
+        DEPLOY_SCRIPT: ${{ github.action_path }}/deploy.sh
+      run: bash "$DEPLOY_SCRIPT" "$DEPLOY_COMMAND"

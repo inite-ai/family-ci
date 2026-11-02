@@ -67,7 +67,8 @@ export function deployProblems(name, text) {
   if (!on.has('release')) problems.push(`${name} does not listen for release: published`);
   const calls = sharedCalls(text);
   if (!calls.has('release-gate.yml')) problems.push(`${name} does not call inite-shared's release-gate.yml (the commit must have a green ci)`);
-  if (!calls.has('verify-deploy.yml')) problems.push(`${name} does not call inite-shared's verify-deploy.yml after the deploy`);
+  // deploy-compose.yml verifies inside (expect-build, www), so calling it is calling verify.
+  if (!calls.has('verify-deploy.yml') && !calls.has('deploy-compose.yml')) problems.push(`${name} does not call inite-shared's verify-deploy.yml after the deploy (or deploy through deploy-compose.yml, which does)`);
   if (!/^concurrency\s*:/m.test(text)) problems.push(`${name} has no top-level concurrency group (one deploy at a time)`);
   return problems;
 }

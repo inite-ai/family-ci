@@ -23,7 +23,9 @@
   "env-required-in-deploy": "2026-12-31",
   "seo-robots-allows-search": "2026-12-31",
   "seo-llms-txt": "2026-12-31",
-  "seo-org-schema-parent": "2026-12-31"
+  "seo-org-schema-parent": "2026-12-31",
+  "deploy-pinned-image": "2026-12-31",
+  "canonical-host": "2026-12-31"
  },
  "enforce": {
   "env-no-secret-fallback": "2026-11-15",
@@ -33,7 +35,9 @@
   "env-required-in-deploy": "2026-12-31",
   "seo-robots-allows-search": "2026-12-31",
   "seo-llms-txt": "2026-12-31",
-  "seo-org-schema-parent": "2026-12-31"
+  "seo-org-schema-parent": "2026-12-31",
+  "deploy-pinned-image": "2026-12-31",
+  "canonical-host": "2026-12-31"
  },
  "repos": [
   { "repo": "initeestate-landing", "profile": "next" },

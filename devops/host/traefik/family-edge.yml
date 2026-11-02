@@ -1,0 +1,36 @@
+# The family's two edge middlewares, defined ONCE for every site on the
+# shared host. Installed by the owner (a host change, not a deploy) as
+#
+#   /opt/traefik/dynamic/family-edge.yml
+#
+# which traefik-global reads as /etc/traefik/dynamic/family-edge.yml through
+# its file provider (--providers.file.directory=/etc/traefik/dynamic,
+# --providers.file.watch=true): no restart, picked up within seconds. The
+# same directory already holds mtls-client-auth.yml (inite-auth-service).
+#
+# Containers reference them as `redirect-to-https@file` and `www-to-apex@file`
+# (labels rendered by .github/actions/deploy-compose/render.mjs). They never
+# declare them: a middleware two containers declare differently is dropped by
+# Traefik for every router that uses it (07.2026, "middleware
+# redirect-to-https@docker does not exist" on 16 routers). The @docker copies
+# containers still declare keep working beside these until each app moves to
+# deploy-compose; the two names do not collide (different providers).
+#
+# The deploy checks these two are present before it changes anything
+# (deploy.sh preflight) and stops if they are not.
+http:
+  middlewares:
+    # http://X/... -> https://X/... (301).
+    redirect-to-https:
+      redirectScheme:
+        scheme: https
+        permanent: true
+    # http(s)://www.X[:port]/path?q -> https://X/path?q (301), whatever port
+    # the request named: the edge answers, so a container's port (:3000) can
+    # never reach the Location header (www.inite.education and www.inite.club,
+    # 31.10.2026, did it in the app).
+    www-to-apex:
+      redirectRegex:
+        regex: '^https?://www\.([^/:]+)(?::[0-9]+)?(.*)$'
+        replacement: 'https://${1}${2}'
+        permanent: true

@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AUTH_RULES } from './auth-rules.mjs';
+import { DEPLOY_RULES } from './deploy-rules.mjs';
 import { DOOR_RULE } from './doors.mjs';
 import { ENV_RULES } from './env-rules.mjs';
 import { HOST_RULE } from './host-safety.mjs';
@@ -264,6 +265,8 @@ export const RULES = [
   DOOR_RULE,
   // A deploy removes only what it created (lib/host-safety.mjs; 25.10 and 30.10.2026).
   HOST_RULE,
+  // The image is the commit; www and https are the edge's (lib/deploy-rules.mjs, deploy-compose.yml).
+  ...DEPLOY_RULES,
   // The security baseline (lib/security.mjs, .planning/family-security-baseline-2026-10.md).
   ...SECURITY_RULES,
   ...AUTH_RULES,

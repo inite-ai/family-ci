@@ -8,7 +8,15 @@
 #
 # Each URL must answer below 400 within the timeout (redirects are not
 # followed: a 3xx is an answer). With `expect`, the first URL's body must
-# contain it - e.g. the commit, when the app reports one.
+# contain it.
+#
+# With `expect-build: ${{ github.sha }}`, the first URL's site must report
+# that commit at `version-path` (default /api/version): "something answered"
+# is not "this release answered" - a stale or wrong container passes the
+# first check, not this one. With `www: true`, https://www.<host>/ must answer
+# a 301/308 to https://<host>/ with no port (www.inite.education and
+# www.inite.club sent people to :3000 on 31.10.2026). deploy-compose.yml
+# passes all three.
 #
 # Then the first URL's site is read the way an attacker reads it
 # (inite-standards probe): HSTS, CSP without inline scripts, frame-ancestors,
@@ -29,6 +37,18 @@ on:
         description: Text the first URL's body must contain.
         type: string
         default: ''
+      expect-build:
+        description: The commit the first URL's site must report at version-path (deploy-compose passes the released sha).
+        type: string
+        default: ''
+      version-path:
+        description: Where the site reports its build (JSON or text containing the commit).
+        type: string
+        default: /api/version
+      www:
+        description: The www twin of the first URL's host must answer a permanent redirect to the https apex, with no port.
+        type: boolean
+        default: false
       timeout-seconds:
         type: number
         default: 300
@@ -76,6 +96,49 @@ jobs:
           done
           exit "$status"
 
+      - name: This release answers
+        if: inputs.expect-build != ''
+        env:
+          URLS: ${{ inputs.urls }}
+          SHA: ${{ inputs.expect-build }}
+          VERSION_PATH: ${{ inputs.version-path }}
+          TIMEOUT: ${{ inputs.timeout-seconds }}
+        run: |
+          set -u
+          first=$(printf '%s' "$URLS" | awk '{print $1; exit}')
+          origin=$(printf '%s' "$first" | sed -E 's#^(https?://[^/]+).*#\1#')
+          url="$origin$VERSION_PATH"
+          deadline=$(( $(date +%s) + TIMEOUT ))
+          while :; do
+            body=$(curl -sS --max-time 20 -H 'cache-control: no-cache' -A 'inite-verify-deploy/1' "$url?v=$SHA" 2>/dev/null || true)
+            if printf '%s' "$body" | grep -qF "$SHA"; then echo "✓ $url reports ${SHA:0:8}"; exit 0; fi
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "::error::$url does not report $SHA (it said: $(printf '%s' "$body" | head -c 200))"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: www goes to the apex at the edge
+        if: inputs.www
+        env:
+          URLS: ${{ inputs.urls }}
+        run: |
+          set -u
+          first=$(printf '%s' "$URLS" | awk '{print $1; exit}')
+          host=$(printf '%s' "$first" | sed -E 's#^https?://([^/:]+).*#\1#')
+          out=$(curl -sS -o /dev/null --max-time 20 -w '%{http_code} %{redirect_url}' -A 'inite-verify-deploy/1' "https://www.$host/x?q=1" 2>/dev/null || echo "000 ")
+          code=${out%% *}
+          to=${out#* }
+          case "$code" in
+            301 | 308) ;;
+            *) echo "::error::https://www.$host/ answered $code, not a permanent redirect to https://$host/"; exit 1 ;;
+          esac
+          case "$to" in
+            "https://$host/x?q=1") echo "✓ www.$host -> $to ($code)" ;;
+            *) echo "::error::https://www.$host/x?q=1 redirects to $to, not https://$host/x?q=1 (a port, http or another host)"; exit 1 ;;
+          esac
+
       - name: Family tools
         uses: inite-ai/family-ci/.github/actions/family@main
       - name: Security probe
@@ -83,7 +146,7 @@ jobs:
           URLS: ${{ inputs.urls }}
           ENFORCE: ${{ inputs.probe-enforce && '1' || '0' }}
         run: |
-          first=$(printf '%s\n' $URLS | head -1)
+          first=$(printf '%s' "$URLS" | awk '{print $1; exit}')
           origin=$(node -e 'console.log(new URL(process.argv[1]).origin)' "$first")
           if node "$INITE_FAMILY_DIR/bin/inite-standards.mjs" probe "$origin" > /tmp/probe.md; then
             cat /tmp/probe.md

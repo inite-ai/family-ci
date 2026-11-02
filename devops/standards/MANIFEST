@@ -5,6 +5,7 @@ family/release.sh
 lib/audit.mjs
 lib/auth-rules.mjs
 lib/checks.mjs
+lib/deploy-rules.mjs
 lib/doors.mjs
 lib/drift.mjs
 lib/env-rules.mjs

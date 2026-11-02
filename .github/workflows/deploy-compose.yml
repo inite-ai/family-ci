@@ -1,0 +1,391 @@
+# The family's one deploy, called by a family repo's deploy workflow after
+# the release gate and its own build (devops/standards/templates/deploy-head.yml):
+#
+#   deploy:
+#     needs: build-and-push
+#     uses: inite-ai/family-ci/.github/workflows/deploy-compose.yml@main
+#     secrets: inherit
+#     permissions: { contents: read }
+#     with:
+#       app: initerent                  # container, /opt/projects/<app>, compose service
+#       image: initerent                # <DOCKERHUB_USERNAME>/initerent, or a full repository
+#       domains: inite.rent www.inite.rent
+#       env: |
+#         NODE_ENV=production
+#         AUTH_SECRET=${secrets.AUTH_SECRET}
+#       e2e-command: sh scripts/release-e2e.sh
+#
+# What it does, in order (each step only after the one before passed):
+#   e2e      the release's end-to-end suite runs against the image this
+#            release built (IMAGE=<image>:<sha>), on every path: a release
+#            and a dispatch alike. Only a dispatch of a tag that was released
+#            before (a rollback) may skip it, with skip-e2e.
+#   deploy   on the shared host (.github/actions/deploy-compose/deploy.sh):
+#            the image pinned by commit, never :latest; the env file mode 600,
+#            never secrets in the compose file or a process list; Traefik
+#            labels rendered once, with https and www→apex as the family's
+#            @file middlewares (devops/host/traefik/family-edge.yml); the new
+#            container beside the old one, `compose up --wait` on its
+#            healthcheck, its version path must report the commit, then the
+#            old one retires. A failure there leaves the old one serving.
+#   verify   from outside (verify-deploy.yml): the canonical host answers,
+#            <version-path> reports the commit (expect-build), and www
+#            answers a 301 to the https apex with no port.
+#   rollback when verify fails after a deploy: the image before it comes back
+#            the same way (no migration), and the run stays red.
+#
+# Never: a host-wide prune, `--remove-orphans`, `down -v`, removing what is
+# not this app's. Cleanup is this app's own images, the newest three kept.
+#
+# Secrets (secrets: inherit): DOCKERHUB_USERNAME and DOCKERHUB_TOKEN; the
+# submodule token for e2e (SUBMODULE_TOKEN or SUBMODULE_SSH_KEY); every
+# secret named in `env` or `e2e-env` as ${secrets.NAME} (or ${secrets.NAME?}
+# when blank is meant). A required one that is missing stops the deploy
+# before the host changes.
+name: family deploy (compose)
+
+on:
+  workflow_call:
+    inputs:
+      app:
+        description: The app's name on the host - container, compose service, /opt/projects/<app>, router names.
+        type: string
+        required: true
+      image:
+        description: The image repository without a tag. A bare name is prefixed with the DOCKERHUB_USERNAME secret.
+        type: string
+        required: true
+      sha:
+        description: The commit whose image goes out (the tag the build pushed). Blank = github.sha.
+        type: string
+        default: ''
+      domains:
+        description: Hosts, space separated. The first non-www host is canonical; every www.X answers a 301 to https://X at the edge.
+        type: string
+        required: true
+      port:
+        description: The port the app listens on inside the container.
+        type: number
+        default: 3000
+      env:
+        description: The app's environment, KEY=value lines; ${secrets.NAME} is a secret's value, ${secrets.NAME?} the same or blank.
+        type: string
+        default: ''
+      volumes:
+        description: name:/path (a named volume of this app, <app>_<name>) or /host/path:/path lines.
+        type: string
+        default: ''
+      health-path:
+        description: The path the container's healthcheck opens (from inside the container).
+        type: string
+        default: /api/version
+      health-command:
+        description: A healthcheck command instead of wget on health-path (for an image without wget).
+        type: string
+        default: ''
+      version-path:
+        description: The path that reports the commit (JSON or text containing the sha). Checked inside the container and from outside.
+        type: string
+        default: /api/version
+      migrate:
+        description: A command run in the new image, with the new env, before it replaces the old container. Failure stops the deploy.
+        type: string
+        default: ''
+      e2e-command:
+        description: The release's end-to-end suite, run from the repo root with IMAGE=<image>:<sha> and SHA set. Required.
+        type: string
+        required: true
+      e2e-env:
+        description: KEY=value lines for the e2e job, same syntax as env.
+        type: string
+        default: ''
+      e2e-postgres:
+        description: A Postgres image for the e2e job (e.g. postgres:16-alpine), at postgres:postgres@localhost:5432/<e2e-postgres-db>; blank for none.
+        type: string
+        default: ''
+      e2e-postgres-db:
+        type: string
+        default: app
+      e2e-node:
+        description: Install Node (.nvmrc) and the repo's dependencies before the e2e command.
+        type: boolean
+        default: true
+      e2e-runner:
+        type: string
+        default: ubuntu-24.04
+      e2e-timeout-minutes:
+        type: number
+        default: 30
+      e2e-artifacts:
+        description: Paths uploaded when e2e fails (reports, traces), newline separated.
+        type: string
+        default: ''
+      skip-e2e:
+        description: Skip e2e. Honoured only for a dispatch of a tag that was released before (a rollback); refused otherwise.
+        type: boolean
+        default: false
+      runner:
+        description: The deploy job's runs-on, as JSON.
+        type: string
+        default: '["self-hosted", "sfo"]'
+      wait-timeout:
+        description: Seconds compose waits for the new container to be healthy.
+        type: number
+        default: 300
+      verify-urls:
+        description: More URLs that must answer below 400 after the deploy, space separated (the canonical host's / is always checked).
+        type: string
+        default: ''
+      probe-enforce:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      e2e: ${{ steps.e2e.outputs.run }}
+      canonical: ${{ steps.hosts.outputs.canonical }}
+      www: ${{ steps.hosts.outputs.www }}
+    steps:
+      - name: Family tools
+        uses: inite-ai/family-ci/.github/actions/family@main
+      - name: Hosts and image
+        id: hosts
+        env:
+          DOMAINS: ${{ inputs.domains }}
+          IMAGE_INPUT: ${{ inputs.image }}
+          SHA: ${{ inputs.sha || github.sha }}
+        run: |
+          render="$INITE_FAMILY_DIR/../../.github/actions/deploy-compose/render.mjs"
+          canonical=$(DOMAINS="$DOMAINS" node "$render" canonical)
+          [ -n "$canonical" ] || { echo "::error::domains has no apex host: $DOMAINS"; exit 1; }
+          case "$SHA" in *[!0-9a-f]* | "") echo "::error::sha must be a commit, not \"$SHA\""; exit 1 ;; esac
+          [ "${#SHA}" -ge 7 ] || { echo "::error::sha is too short: $SHA"; exit 1; }
+          case "${IMAGE_INPUT##*/}" in *:* | *@*) echo "::error::image is the repository without a tag; the tag is the commit"; exit 1 ;; esac
+          {
+            echo "canonical=$canonical"
+            echo "www=$(DOMAINS="$DOMAINS" node "$render" www)"
+          } >> "$GITHUB_OUTPUT"
+      - name: Does e2e run
+        id: e2e
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SKIP: ${{ inputs.skip-e2e }}
+          EVENT: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          if [ "$SKIP" != true ]; then echo "run=yes" >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ "$EVENT" = workflow_dispatch ] && [ "$REF_TYPE" = tag ] && gh release view "$REF_NAME" --repo "$REPO" >/dev/null 2>&1; then
+            echo "e2e skipped: $REF_NAME is a published release (a rollback); it passed e2e when it shipped."
+            echo "run=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "::error::skip-e2e is only for a dispatch of a released tag (a rollback); $EVENT of $REF_TYPE $REF_NAME runs e2e"
+          exit 1
+
+  e2e:
+    name: e2e (the image under release)
+    needs: plan
+    if: needs.plan.outputs.e2e == 'yes'
+    runs-on: ${{ inputs.e2e-runner }}
+    timeout-minutes: ${{ inputs.e2e-timeout-minutes }}
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: ${{ inputs.e2e-postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ${{ inputs.e2e-postgres-db }}
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      CI: '1'
+      # Built here, not passed from plan: a job output holding a secret (the
+      # registry user) is dropped by GitHub.
+      IMAGE: ${{ contains(inputs.image, '/') && inputs.image || format('{0}/{1}', secrets.DOCKERHUB_USERNAME, inputs.image) }}:${{ inputs.sha || github.sha }}
+      SHA: ${{ inputs.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+
+      - name: Submodules
+        if: hashFiles('.gitmodules') != ''
+        env:
+          SUBMODULE_TOKEN: ${{ secrets.SUBMODULE_TOKEN }}
+          SUBMODULE_SSH_KEY: ${{ secrets.SUBMODULE_SSH_KEY }}
+        run: |
+          if [ -n "$SUBMODULE_TOKEN" ]; then
+            git config --global url."https://x-access-token:${SUBMODULE_TOKEN}@github.com/".insteadOf "https://github.com/"
+          elif [ -n "$SUBMODULE_SSH_KEY" ]; then
+            mkdir -p ~/.ssh && printf '%s\n' "$SUBMODULE_SSH_KEY" > ~/.ssh/id_submodule && chmod 600 ~/.ssh/id_submodule
+            ssh-keyscan -t ed25519,rsa github.com >> ~/.ssh/known_hosts 2>/dev/null
+            git config --global core.sshCommand "ssh -i ~/.ssh/id_submodule -o IdentitiesOnly=yes"
+            git config --global url."git@github.com:".insteadOf "https://github.com/"
+          else
+            echo "::error::the repo has submodules but neither SUBMODULE_TOKEN nor SUBMODULE_SSH_KEY reached the workflow (secrets: inherit?)"
+            exit 1
+          fi
+          git submodule sync --recursive
+          git submodule update --init --recursive
+
+      - name: Family tools
+        uses: inite-ai/family-ci/.github/actions/family@main
+
+      - name: Environment
+        env:
+          ENV_TEMPLATE: ${{ inputs.e2e-env }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+          HAS_PG: ${{ inputs.e2e-postgres != '' }}
+          PG_DB: ${{ inputs.e2e-postgres-db }}
+        run: |
+          node "$INITE_FAMILY_DIR/../../.github/actions/deploy-compose/render.mjs" github-env "$GITHUB_ENV"
+          if [ "$HAS_PG" = true ] && ! grep -q '^DATABASE_URL<<' "$GITHUB_ENV"; then
+            echo "DATABASE_URL=postgresql://postgres:postgres@localhost:5432/$PG_DB" >> "$GITHUB_ENV"
+          fi
+
+      - name: What this repo is
+        if: inputs.e2e-node
+        id: repo
+        run: |
+          echo "pm=$(node "$INITE_FAMILY_DIR/bin/inite-standards.mjs" pm)" >> "$GITHUB_OUTPUT"
+          if [ -f .nvmrc ]; then echo "node=$(tr -d 'v \n' < .nvmrc)"; else echo "node=22"; fi >> "$GITHUB_OUTPUT"
+
+      - name: pnpm
+        if: inputs.e2e-node && steps.repo.outputs.pm == 'pnpm'
+        uses: pnpm/action-setup@a7487c7e89a18df4991f7f222e4898a00d66ddda # v4.1.0
+
+      - name: Node
+        if: inputs.e2e-node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ steps.repo.outputs.node }}
+          cache: ${{ steps.repo.outputs.pm }}
+
+      - name: Install
+        if: inputs.e2e-node
+        env:
+          PM: ${{ steps.repo.outputs.pm }}
+        run: |
+          case "$PM" in
+            pnpm) pnpm install --frozen-lockfile ;;
+            yarn) yarn install --frozen-lockfile ;;
+            *) npm ci ;;
+          esac
+
+      - name: Registry
+        env:
+          USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          if [ -n "$TOKEN" ]; then printf '%s' "$TOKEN" | docker login -u "$USER" --password-stdin >/dev/null; fi
+          docker pull -q "$IMAGE" >/dev/null
+          echo "✓ $IMAGE"
+
+      - name: e2e against the image
+        env:
+          E2E_COMMAND: ${{ inputs.e2e-command }}
+        run: sh -c "$E2E_COMMAND"
+
+      - name: Reports
+        if: failure() && inputs.e2e-artifacts != ''
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: e2e-${{ inputs.app }}-${{ inputs.sha || github.sha }}
+          path: ${{ inputs.e2e-artifacts }}
+          retention-days: 30
+
+  deploy:
+    name: deploy (host)
+    needs: [plan, e2e]
+    # e2e passed, or the plan skipped it for a rollback dispatch.
+    if: always() && needs.plan.result == 'success' && (needs.e2e.result == 'success' || (needs.e2e.result == 'skipped' && needs.plan.outputs.e2e == 'no'))
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    # One deploy of an app at a time on the host, whichever workflow starts it.
+    concurrency:
+      group: deploy-compose-${{ inputs.app }}
+      cancel-in-progress: false
+    steps:
+      - name: Registry
+        env:
+          USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: if [ -n "$TOKEN" ]; then printf '%s' "$TOKEN" | docker login -u "$USER" --password-stdin >/dev/null; fi
+
+      - name: Deploy
+        uses: inite-ai/family-ci/.github/actions/deploy-compose@main
+        with:
+          command: deploy
+        env:
+          APP: ${{ inputs.app }}
+          IMAGE: ${{ contains(inputs.image, '/') && inputs.image || format('{0}/{1}', secrets.DOCKERHUB_USERNAME, inputs.image) }}
+          SHA: ${{ inputs.sha || github.sha }}
+          EDGE_SUFFIX: r${{ github.run_id }}-${{ github.run_attempt }}
+          DOMAINS: ${{ inputs.domains }}
+          PORT: ${{ inputs.port }}
+          VOLUMES: ${{ inputs.volumes }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+          HEALTH_COMMAND: ${{ inputs.health-command }}
+          VERSION_PATH: ${{ inputs.version-path }}
+          MIGRATE: ${{ inputs.migrate }}
+          WAIT_TIMEOUT: ${{ inputs.wait-timeout }}
+          ENV_TEMPLATE: ${{ inputs.env }}
+          SECRETS_JSON: ${{ toJSON(secrets) }}
+
+  verify:
+    needs: [plan, deploy]
+    uses: inite-ai/family-ci/.github/workflows/verify-deploy.yml@main
+    with:
+      urls: https://${{ needs.plan.outputs.canonical }}/ ${{ inputs.verify-urls }}
+      expect-build: ${{ inputs.sha || github.sha }}
+      version-path: ${{ inputs.version-path }}
+      www: ${{ needs.plan.outputs.www == 'yes' }}
+      probe-enforce: ${{ inputs.probe-enforce }}
+
+  rollback:
+    name: rollback (verify failed)
+    needs: [plan, deploy, verify]
+    if: always() && needs.deploy.result == 'success' && needs.verify.result == 'failure'
+    runs-on: ${{ fromJSON(inputs.runner) }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    concurrency:
+      group: deploy-compose-${{ inputs.app }}
+      cancel-in-progress: false
+    steps:
+      - name: Registry
+        env:
+          USER: ${{ secrets.DOCKERHUB_USERNAME }}
+          TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: if [ -n "$TOKEN" ]; then printf '%s' "$TOKEN" | docker login -u "$USER" --password-stdin >/dev/null; fi
+      - name: Roll back to the image before this one
+        uses: inite-ai/family-ci/.github/actions/deploy-compose@main
+        with:
+          command: rollback
+        env:
+          APP: ${{ inputs.app }}
+          IMAGE: ${{ contains(inputs.image, '/') && inputs.image || format('{0}/{1}', secrets.DOCKERHUB_USERNAME, inputs.image) }}
+          SHA: ${{ inputs.sha || github.sha }}
+          EDGE_SUFFIX: r${{ github.run_id }}-${{ github.run_attempt }}
+          DOMAINS: ${{ inputs.domains }}
+          PORT: ${{ inputs.port }}
+          VOLUMES: ${{ inputs.volumes }}
+          HEALTH_PATH: ${{ inputs.health-path }}
+          HEALTH_COMMAND: ${{ inputs.health-command }}
+          WAIT_TIMEOUT: ${{ inputs.wait-timeout }}

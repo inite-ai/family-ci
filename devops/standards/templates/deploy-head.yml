@@ -1,5 +1,9 @@
-# The head of a family deploy workflow. Keep the repo's own build and deploy
-# jobs between `gate` and `verify`; make the first of them `needs: gate`.
+# The head of a family deploy workflow: `gate`, the repo's own build, then the
+# family deploy (inite-shared .github/workflows/deploy-compose.yml), which runs
+# the release e2e on the image, deploys it pinned by commit, verifies it from
+# outside and rolls back on its own. devops/workflow-templates/deploy.yml is
+# the whole file. A repo still on its own deploy job keeps it between `gate`
+# and a `verify` job (verify-deploy.yml with expect-build) until it moves.
 name: Deploy
 
 # PRODUCTION MOVES ON A RELEASE, NOT ON A MERGE (family standard, 29.10.2026).
@@ -26,14 +30,16 @@ jobs:
 
   # build-and-push:
   #   needs: gate
-  #   ... the repo's own steps, unchanged ...
-  # deploy:
-  #   needs: build-and-push
-  #   runs-on: [self-hosted, sfo]
-  #   ... the repo's own steps, unchanged ...
+  #   ... the repo's own build: push <image>:${{ github.sha }} only ...
 
-  verify:
-    needs: deploy
-    uses: inite-ai/inite-shared/.github/workflows/verify-deploy.yml@main
+  deploy:
+    needs: gate # build-and-push, once it is there
+    uses: inite-ai/inite-shared/.github/workflows/deploy-compose.yml@main
+    secrets: inherit
+    permissions:
+      contents: read
     with:
-      urls: https://example.inite
+      app: example
+      image: example
+      domains: example.inite www.example.inite
+      e2e-command: sh scripts/release-e2e.sh
