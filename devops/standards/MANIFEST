@@ -5,6 +5,7 @@ family/release.sh
 lib/audit.mjs
 lib/auth-rules.mjs
 lib/checks.mjs
+lib/doors.mjs
 lib/drift.mjs
 lib/env-rules.mjs
 lib/host-safety.mjs
@@ -17,6 +18,7 @@ lib/repo.mjs
 lib/secrets.mjs
 lib/shared-env.json
 lib/security.mjs
+lib/seo-rules.mjs
 lib/workflows.mjs
 security/domains.json
 family.json

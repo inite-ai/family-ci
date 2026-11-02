@@ -5,6 +5,8 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { reachesHost, triggers } from './workflows.mjs';
+
 export const CONFIG = '.inite/standards.json';
 export const PROFILES = ['next', 'node', 'python'];
 
@@ -99,10 +101,43 @@ export function stepCommand(repo, step) {
   return `${pm} run ${step}`;
 }
 
-/** The deploy workflows the release moves: config, else the deploy*.yml files present. */
-export function deployWorkflows(repo) {
+/**
+ * The deploy workflows the repo declares: config, else the deploy*.yml
+ * files present. `deploy-on-release` holds these to the release rule.
+ */
+export function declaredDeploys(repo) {
   const listed = repo.config.deploy?.workflows;
-  if (Array.isArray(listed) && listed.length) return listed;
+  if (Array.isArray(listed) && listed.length) return [...listed];
   const found = repo.files.filter((f) => /^\.github\/workflows\/deploy[^/]*\.ya?ml$/.test(f)).map((f) => path.basename(f));
   return found.length ? found : ['deploy.yml'];
+}
+
+/**
+ * Every workflow that reaches the production host (a self-hosted job, or a
+ * deploy over ssh), whatever it is called, minus the read-only ops the repo
+ * names in `host.ops` with a reason. `deploy-every-door` holds each to the
+ * release rule.
+ */
+export function hostDoors(repo) {
+  const ops = repo.config.host?.ops ?? {};
+  return repo.files
+    .filter((f) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(f))
+    .filter((f) => reachesHost(repo.read(f) ?? ''))
+    .map((f) => path.basename(f))
+    .filter((wf) => !(wf in ops));
+}
+
+/**
+ * The deploy workflows a release moves (release.sh waits for each): the
+ * declared ones, plus every other door to the host that listens for a
+ * release. A door that does not listen is not moved by a release; the
+ * `deploy-every-door` rule fails it instead.
+ */
+export function deployWorkflows(repo) {
+  const out = declaredDeploys(repo);
+  for (const wf of hostDoors(repo)) {
+    if (out.includes(wf)) continue;
+    if (triggers(repo.read(`.github/workflows/${wf}`) ?? '').has('release')) out.push(wf);
+  }
+  return out;
 }

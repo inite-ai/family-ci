@@ -9,6 +9,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { AUTH_RULES } from './auth-rules.mjs';
+import { DOOR_RULE } from './doors.mjs';
 import { ENV_RULES } from './env-rules.mjs';
 import { HOST_RULE } from './host-safety.mjs';
 import { PAYMENT_RULES } from './payment-rules.mjs';
@@ -17,6 +18,7 @@ import { checkLintRecord, checkSizes } from './ratchets.mjs';
 import { CONFIG, deployWorkflows, PROFILES } from './repo.mjs';
 import { credentialFileProblems, envFileProblems, keyProblems } from './secrets.mjs';
 import { SECURITY_RULES } from './security.mjs';
+import { SEO_RULES } from './seo-rules.mjs';
 import { deployProblems, jobIds, sharedCalls, triggers } from './workflows.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -258,6 +260,8 @@ export const RULES = [
       return /family\.sh gate/.test(text) ? [] : [`${hook} does not run \`sh scripts/family.sh gate\``];
     },
   },
+  // Every workflow that reaches the host is a deploy, gated (lib/doors.mjs; 01.11.2026).
+  DOOR_RULE,
   // A deploy removes only what it created (lib/host-safety.mjs; 25.10 and 30.10.2026).
   HOST_RULE,
   // The security baseline (lib/security.mjs, .planning/family-security-baseline-2026-10.md).
@@ -267,6 +271,8 @@ export const RULES = [
   ...ENV_RULES,
   // Every payment through billing (.planning/family-subscriptions-2026-10.md).
   ...PAYMENT_RULES,
+  // What a site shows search engines and assistants (lib/seo-rules.mjs, 31.10.2026).
+  ...SEO_RULES,
 ];
 
 /**
@@ -326,13 +332,15 @@ export function check(repo, { against = null, offline = false, only = null, toda
       problems = [`the check itself failed: ${err.message.split('\n')[0]}`];
     }
     const owed = rule.id in debt;
+    // A rule may allow debt for some problems only (a function of them).
+    const debtable = typeof rule.debtable === 'function' ? rule.debtable(problems) : rule.debtable !== false;
     let status = problems.length ? 'fail' : 'ok';
-    if (owed && problems.length && rule.debtable !== false) status = 'debt';
+    if (owed && problems.length && debtable) status = 'debt';
     else if (!owed && problems.length && warnsOnly(rule.id, today)) status = 'warn';
     else if (owed && !problems.length) {
       status = 'fail';
       problems = [`paid: strike "${rule.id}" from the debt in ${CONFIG}`];
-    } else if (owed && rule.debtable === false) problems.push(`"${rule.id}" cannot be carried as debt`);
+    } else if (owed && !debtable) problems.push(`"${rule.id}" cannot be carried as debt${typeof rule.debtable === 'function' ? ' for these problems' : ''}`);
     results.push({ id: rule.id, status, problems, what: rule.what, reason: debt[rule.id] });
   }
   const grown = newDebt(repo, against);

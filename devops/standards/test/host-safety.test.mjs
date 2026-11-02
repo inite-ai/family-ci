@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { check } from '../lib/checks.mjs';
+import { check, mayStillAddDebt } from '../lib/checks.mjs';
 import { deployFiles, destroyProblems } from '../lib/host-safety.mjs';
 import { loadRepo } from '../lib/repo.mjs';
 
@@ -190,5 +190,27 @@ describe('the rule in check', () => {
     const files = { '.github/workflows/ops.yml': 'run: docker volume rm inite-temporal_surrealdb-data-v3\n' };
     assert.equal(run(repoWith('content-generator', { ...files, '.inite/standards.json': JSON.stringify({ profile: 'next' }) })).status, 'fail');
     assert.equal(run(repoWith('content-generator', { ...files, '.inite/standards.json': JSON.stringify({ profile: 'next', host: { owns: ['inite-temporal_surrealdb-data-v3'] } }) })).status, 'ok');
+  });
+});
+
+describe('compose up --remove-orphans (01.11.2026)', () => {
+  it('is refused like down --remove-orphans, both spellings of compose', () => {
+    refused('docker-compose up -d --remove-orphans');
+    refused('docker compose -f compose.yml up -d --remove-orphans --wait');
+    refused('docker compose -p initeshop up -d --remove-orphans');
+  });
+  it('plain up, and up beside another command with the flag, are fine', () => {
+    allowed('docker compose up -d --wait');
+    allowed('docker-compose up -d && echo --remove-orphans');
+  });
+  it('may be carried as debt until the date in family.json; a prune beside it may not', () => {
+    const debt = JSON.stringify({ profile: 'next', debt: { 'deploy-no-host-wide-destroy': 'the deploy drops --remove-orphans in its own PR' } });
+    const runIt = (dir) => check(loadRepo(dir), { only: ['deploy-no-host-wide-destroy'] }).results[0];
+    const up = repoWith('bloomcheck', { '.inite/standards.json': debt, '.github/workflows/deploy.yml': 'run: docker compose up -d --remove-orphans\n' });
+    assert.equal(runIt(up).status, 'debt');
+    const both = repoWith('bloomcheck', { '.inite/standards.json': debt, '.github/workflows/deploy.yml': 'run: docker compose up -d --remove-orphans\nrun: docker system prune -f\n' });
+    assert.equal(runIt(both).status, 'fail');
+    assert.equal(mayStillAddDebt('deploy-no-host-wide-destroy', '2026-11-30'), true);
+    assert.equal(mayStillAddDebt('deploy-no-host-wide-destroy', '2026-12-01'), false);
   });
 });

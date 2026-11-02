@@ -123,6 +123,8 @@ function scopedList(raw, owned, vars) {
   return false;
 }
 
+const UP_ORPHANS = 'compose up with --remove-orphans';
+
 const RM = /\bdocker\s+(?:container\s+rm|volume\s+rm|image\s+rm|rmi|rm)\b/;
 
 /**
@@ -154,6 +156,9 @@ export function destroyProblems(text, context = {}) {
     if (/\bdocker[- ]compose\b[^|;&\n]*\bdown\b[^|;&\n]*?(?:\s-[a-zA-Z]*v[a-zA-Z]*\b|--volumes\b|--remove-orphans\b)/.test(code)) {
       say('compose down with -v/--volumes/--remove-orphans removes volumes or containers this file did not define; use plain `down`');
     }
+    if (/\bdocker[- ]compose\b[^|;&\n]*\bup\b[^|;&\n]*--remove-orphans\b/.test(code)) {
+      say(`${UP_ORPHANS} removes every container of the project this file did not define, another repo's when the project name collides; drop the flag and remove this repo's old services by name`);
+    }
     const rm = RM.exec(code);
     if (rm) {
       const before = code.slice(0, rm.index);
@@ -181,8 +186,10 @@ export function destroyProblems(text, context = {}) {
 export const HOST_RULE = {
   id: 'deploy-no-host-wide-destroy',
   profiles: ['next', 'node', 'python'],
-  debtable: false,
-  what: 'a deploy removes only what it created: no system/container/volume prune, no unfiltered image prune, no compose down -v/--remove-orphans, no rm of names it does not own',
+  // Debt covers only `up --remove-orphans` (added 01.11.2026); a prune, a
+  // down -v or an rm of another repo's name is never carried.
+  debtable: (problems) => problems.length > 0 && problems.every((p) => p.includes(UP_ORPHANS)),
+  what: 'a deploy removes only what it created: no system/container/volume prune, no unfiltered image prune, no compose down -v/--remove-orphans or up --remove-orphans, no rm of names it does not own',
   run(repo) {
     const repoName = path.basename(repo.root);
     const owns = repo.config.host?.owns ?? [];

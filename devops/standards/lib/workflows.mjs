@@ -71,3 +71,34 @@ export function deployProblems(name, text) {
   if (!/^concurrency\s*:/m.test(text)) problems.push(`${name} has no top-level concurrency group (one deploy at a time)`);
   return problems;
 }
+
+/**
+ * Does this workflow reach the production host? A job on a self-hosted
+ * runner (the family's runners live on the host) or a step that deploys over
+ * ssh/scp/rsync to user@host, or through an ssh/scp action. Fetching over
+ * ssh from GitHub (a submodule key, ssh-keyscan) is not a deploy.
+ */
+export function reachesHost(text) {
+  const code = text
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+  if (/^\s*runs-on\s*:[^\n]*\bself-hosted\b/m.test(code)) return true;
+  if (/^\s*runs-on\s*:\s*\n(?:\s*-\s*[^\n]*\n)*?\s*-\s*["']?self-hosted\b/m.test(code)) return true;
+  if (/uses:\s*["']?[\w.-]+\/(?:ssh|scp|rsync)[\w.-]*-action\b/i.test(code)) return true;
+  for (const m of code.matchAll(/(?:^|[\s;&|(`"'])(ssh|scp|rsync)\s+([^\n;&|]*)/g)) {
+    const args = m[2];
+    if (/\bgit@github\.com\b/.test(args)) continue;
+    if (/(?:^|\s)["']?[\w.${}-]+@[\w.${}-]+/.test(args)) return true;
+  }
+  return false;
+}
+
+/** The workflow's text says staging, and it reaches a database. */
+export function stagingTouchesDb(text) {
+  const code = text
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+  return /\bstaging\b/i.test(code) && /\b(?:migrate\s+deploy|db\s+push|migrate\s+resolve|DATABASE_URL|@postgres:\d+|seed)\b/.test(code);
+}

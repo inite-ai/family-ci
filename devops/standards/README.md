@@ -8,7 +8,7 @@ implementation, and it is not a workspace package on purpose: a new
 | Path | What |
 |---|---|
 | `bin/inite-standards.mjs` | the CLI: `check`, `lint`, `sizes`, `protection`, `ci-verdict`, `drift`, `rules` |
-| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads, what a deploy may remove on the shared host (`host-safety.mjs`), the env contract (`env-rules.mjs`, with `lib/shared-env.json`: the names the shared packages read) |
+| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads, what a deploy may remove on the shared host (`host-safety.mjs`), every door to the host gated (`doors.mjs`), the env contract (`env-rules.mjs`, with `lib/shared-env.json`: the names the shared packages read), what a site shows search engines and assistants (`seo-rules.mjs`) |
 | `family/family.sh` | the wrapper every repo carries as `scripts/family.sh`, byte for byte |
 | `family/gate.sh` | the one list of checks: pre-commit (`GATE_SCOPE=commit`) and CI (full) |
 | `family/release.sh` | CalVer GitHub release of main's head, the only thing that deploys |
@@ -39,6 +39,13 @@ CI refuses a new entry, and a paid one fails until it is struck. The two
 numeric records are `.inite/file-size-baseline.json` and
 `.inite/lint-baseline.json`; `--update` lowers them, nothing raises them, and
 `--seed` writes the first one only where none exists.
+
+Every workflow that reaches the host (a job on a self-hosted runner, or a
+deploy over ssh) is a deploy, whatever its name: `deploy-every-door` holds it
+to the release rule (release + dispatch, release-gate.yml, verify-deploy.yml,
+concurrency), and refuses a dispatch-only "staging" that reaches a database.
+A read-only diagnostic is named in `host.ops` as `{ "file.yml": "<why>" }`;
+one that starts containers, migrates or seeds is not read-only.
 
 ## The public mirror: inite-ai/family-ci
 

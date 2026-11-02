@@ -14,18 +14,26 @@
   "payments-through-billing": "2026-12-31",
   "payments-no-price-literals": "2026-12-31",
   "payments-no-mock": "2026-12-31",
+  "deploy-every-door": "2026-11-30",
+  "deploy-no-host-wide-destroy": "2026-11-30",
   "env-no-secret-fallback": "2026-11-15",
   "env-public-not-server": "2026-12-31",
   "env-public-build-args": "2026-12-31",
   "env-example-sync": "2026-12-31",
-  "env-required-in-deploy": "2026-12-31"
+  "env-required-in-deploy": "2026-12-31",
+  "seo-robots-allows-search": "2026-12-31",
+  "seo-llms-txt": "2026-12-31",
+  "seo-org-schema-parent": "2026-12-31"
  },
  "enforce": {
   "env-no-secret-fallback": "2026-11-15",
   "env-public-not-server": "2026-12-31",
   "env-public-build-args": "2026-12-31",
   "env-example-sync": "2026-12-31",
-  "env-required-in-deploy": "2026-12-31"
+  "env-required-in-deploy": "2026-12-31",
+  "seo-robots-allows-search": "2026-12-31",
+  "seo-llms-txt": "2026-12-31",
+  "seo-org-schema-parent": "2026-12-31"
  },
  "repos": [
   { "repo": "initeestate-landing", "profile": "next" },
