@@ -8,7 +8,7 @@ implementation, and it is not a workspace package on purpose: a new
 | Path | What |
 |---|---|
 | `bin/inite-standards.mjs` | the CLI: `check`, `lint`, `sizes`, `protection`, `ci-verdict`, `drift`, `rules` |
-| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads, what a deploy may remove on the shared host (`host-safety.mjs`), every door to the host gated (`doors.mjs`), the env contract (`env-rules.mjs`, with `lib/shared-env.json`: the names the shared packages read), what a site shows search engines and assistants (`seo-rules.mjs`) |
+| `lib/` | the rules (`checks.mjs`), the ratchets, the pin, secrets, workflow reading, GitHub reads, what a deploy may remove on the shared host (`host-safety.mjs`), every door to the host gated (`doors.mjs`), the env contract (`env-rules.mjs`, with `lib/shared-env.json`: the names the shared packages read), what a site shows search engines and assistants (`seo-rules.mjs`), how an API answers an error (`api-rules.mjs`) |
 | `family/family.sh` | the wrapper every repo carries as `scripts/family.sh`, byte for byte |
 | `family/gate.sh` | the one list of checks: pre-commit (`GATE_SCOPE=commit`) and CI (full) |
 | `family/release.sh` | CalVer GitHub release of main's head, the only thing that deploys |
@@ -46,6 +46,29 @@ to the release rule (release + dispatch, release-gate.yml, verify-deploy.yml,
 concurrency), and refuses a dispatch-only "staging" that reaches a database.
 A read-only diagnostic is named in `host.ops` as `{ "file.yml": "<why>" }`;
 one that starts containers, migrates or seeds is not read-only.
+
+A workflow a pull request starts (`pull_request`, `pull_request_target`) runs
+on GitHub's runners, never on the host's self-hosted one: `ci-off-the-host`,
+never debt (06.11.2026, an E2E build on a pull request swapped the production
+host to a stop). It warns until its `enforce` date in family.json.
+
+## API errors: application/problem+json
+
+`api-errors-problem-json` (`lib/api-rules.mjs`) lists every route handler
+(`app/api/**/route.{ts,js}` in a `next` repo) that answers a 4xx or 5xx with
+`NextResponse.json(` or `Response.json(`. The family's error shape is RFC 9457
+Problem Details from `@inite/api-kit`'s `problem(status, code, detail?)`:
+`application/problem+json`, `type` `https://inite.ai/api/problems/<code>`, and
+`error` kept as a string for the front ends that read it; `readProblem(res)`
+reads it and the older shapes on the client.
+
+Detection is a regex, on purpose: a call's arguments (to the closing
+parenthesis) holding a literal `status: 4xx|5xx`. A status in a variable, a
+`new Response(JSON.stringify(...))` or a wrapper defined elsewhere is not seen.
+An error whose shape another standard fixes (OAuth's `{ error }`, a provider's
+webhook) says so on its line or the one above: `// problem-json: <reason>`.
+The rule only warns until 31.01.2027 (`enforce`), and a repo may record it as
+debt until the same day (`introduced`).
 
 ## The public mirror: inite-ai/family-ci
 

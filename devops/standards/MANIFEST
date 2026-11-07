@@ -2,6 +2,7 @@ bin/inite-standards.mjs
 family/family.sh
 family/gate.sh
 family/release.sh
+lib/api-rules.mjs
 lib/audit.mjs
 lib/auth-rules.mjs
 lib/checks.mjs

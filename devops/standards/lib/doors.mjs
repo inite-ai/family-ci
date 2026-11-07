@@ -20,7 +20,7 @@
 // .inite/standards.json `host.ops` as { "file.yml": "<why, 8+ characters>" }.
 // An ops workflow that starts containers, migrates or seeds is not read-only.
 import { declaredDeploys, hostDoors } from './repo.mjs';
-import { deployProblems, reachesHost, stagingTouchesDb, triggers } from './workflows.mjs';
+import { deployProblems, reachesHost, selfHostedJob, stagingTouchesDb, triggers } from './workflows.mjs';
 
 const STAGING = 'dispatch-only staging';
 const WRITES = /\b(?:docker[- ]compose\b[^\n]*\bup\b|docker\s+run\b|migrate\s+(?:deploy|resolve)\b|db\s+push\b|seed\b)/;
@@ -57,6 +57,39 @@ export const DOOR_RULE = {
       // A declared deploy is already held to the release rule by deploy-on-release.
       const problems = doorProblems(wf, text);
       out.push(...(declared.has(wf) ? problems.filter((p) => p.includes(STAGING)) : problems));
+    }
+    return out;
+  },
+};
+
+// A pull request is tested on GitHub's runners, never on the host's.
+//
+// 06.11.2026: content-generator's e2e.yml ran a pull request on
+// [self-hosted, sfo] - a webpack build, a Postgres and a Playwright browser on
+// the production host's four cores and 15 GB. The host swapped to a stop
+// (load 167) and inite.ai and the other sites on it went unanswered until the
+// run was cancelled. A pull request is anyone's branch and any amount of work;
+// the host's runner is there to deploy. Not debt: a repo moves the job to
+// `ubuntu-latest` (private packages through a token, as ci.yml does).
+const PR_EVENTS = ['pull_request', 'pull_request_target'];
+
+/** Problems of one workflow under ci-off-the-host, by its name and text. */
+export function prOnHostProblems(name, text) {
+  const on = triggers(text);
+  const pr = PR_EVENTS.filter((e) => on.has(e));
+  if (!pr.length || !selfHostedJob(text)) return [];
+  return [`${name}: runs on ${pr.join(', ')} with a job on a self-hosted runner, the production host; a pull request runs on GitHub's runners (runs-on: ubuntu-latest)`];
+}
+
+export const PR_HOST_RULE = {
+  id: 'ci-off-the-host',
+  profiles: ['next', 'node', 'python'],
+  debtable: () => false,
+  what: "a workflow a pull request starts runs on GitHub's runners, never on the production host's self-hosted runner",
+  run(repo) {
+    const out = [];
+    for (const f of repo.files.filter((x) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(x))) {
+      out.push(...prOnHostProblems(f.replace(/^\.github\/workflows\//, ''), repo.read(f) ?? ''));
     }
     return out;
   },

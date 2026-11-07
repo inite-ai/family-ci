@@ -154,3 +154,25 @@ describe('the rule in check', () => {
     assert.equal(mayStillAddDebt('deploy-every-door', '2026-12-01'), false);
   });
 });
+
+// ci-off-the-host (lib/doors.mjs): 06.11.2026 a pull request's E2E on the
+// host's runner swapped the production host to a stop.
+import { prOnHostProblems, PR_HOST_RULE } from '../lib/doors.mjs';
+
+describe('a pull request is tested off the host', () => {
+  const job = (runsOn) => `jobs:\n  e2e:\n    runs-on: ${runsOn}\n    steps:\n      - run: pnpm build\n`;
+  it('refuses a pull_request workflow with a self-hosted job, in either runs-on form', () => {
+    assert.equal(prOnHostProblems('e2e.yml', `on:\n  pull_request:\n  push:\n    branches: [main]\n${job('[self-hosted, sfo]')}`).length, 1);
+    assert.equal(prOnHostProblems('e2e.yml', `on: [pull_request]\njobs:\n  e2e:\n    runs-on:\n      - self-hosted\n      - sfo\n`).length, 1);
+    assert.equal(prOnHostProblems('t.yml', `on:\n  pull_request_target:\n${job('self-hosted')}`).length, 1);
+  });
+  it('lets a pull request run on GitHub, and a deploy run on the host', () => {
+    assert.deepEqual(prOnHostProblems('e2e.yml', `on:\n  pull_request:\n${job('ubuntu-latest')}`), []);
+    assert.deepEqual(prOnHostProblems('deploy.yml', `on:\n  release:\n    types: [published]\n${job('[self-hosted, sfo]')}`), []);
+    // A commented-out runner is not a runner.
+    assert.deepEqual(prOnHostProblems('e2e.yml', `on:\n  pull_request:\njobs:\n  e2e:\n    # runs-on: [self-hosted, sfo]\n    runs-on: ubuntu-latest\n`), []);
+  });
+  it('is never carried as debt', () => {
+    assert.equal(PR_HOST_RULE.debtable(['anything']), false);
+  });
+});

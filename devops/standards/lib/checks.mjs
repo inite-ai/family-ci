@@ -8,9 +8,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { API_RULES } from './api-rules.mjs';
 import { AUTH_RULES } from './auth-rules.mjs';
 import { DEPLOY_RULES } from './deploy-rules.mjs';
-import { DOOR_RULE } from './doors.mjs';
+import { DOOR_RULE, PR_HOST_RULE } from './doors.mjs';
 import { ENV_RULES } from './env-rules.mjs';
 import { HOST_RULE } from './host-safety.mjs';
 import { PAYMENT_RULES } from './payment-rules.mjs';
@@ -263,6 +264,8 @@ export const RULES = [
   },
   // Every workflow that reaches the host is a deploy, gated (lib/doors.mjs; 01.11.2026).
   DOOR_RULE,
+  // A pull request is tested on GitHub's runners, not the host's (lib/doors.mjs; 06.11.2026).
+  PR_HOST_RULE,
   // A deploy removes only what it created (lib/host-safety.mjs; 25.10 and 30.10.2026).
   HOST_RULE,
   // The image is the commit; www and https are the edge's (lib/deploy-rules.mjs, deploy-compose.yml).
@@ -276,6 +279,8 @@ export const RULES = [
   ...PAYMENT_RULES,
   // What a site shows search engines and assistants (lib/seo-rules.mjs, 31.10.2026).
   ...SEO_RULES,
+  // Errors as application/problem+json, RFC 9457 (lib/api-rules.mjs, 06.11.2026).
+  ...API_RULES,
 ];
 
 /**

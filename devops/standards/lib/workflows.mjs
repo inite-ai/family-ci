@@ -79,13 +79,21 @@ export function deployProblems(name, text) {
  * ssh/scp/rsync to user@host, or through an ssh/scp action. Fetching over
  * ssh from GitHub (a submodule key, ssh-keyscan) is not a deploy.
  */
+/** A job of this workflow runs on a self-hosted runner (the family's live on the host). */
+export function selfHostedJob(text) {
+  const code = text
+    .split('\n')
+    .filter((l) => !/^\s*#/.test(l))
+    .join('\n');
+  return /^\s*runs-on\s*:[^\n]*\bself-hosted\b/m.test(code) || /^\s*runs-on\s*:\s*\n(?:\s*-\s*[^\n]*\n)*?\s*-\s*["']?self-hosted\b/m.test(code);
+}
+
 export function reachesHost(text) {
   const code = text
     .split('\n')
     .filter((l) => !/^\s*#/.test(l))
     .join('\n');
-  if (/^\s*runs-on\s*:[^\n]*\bself-hosted\b/m.test(code)) return true;
-  if (/^\s*runs-on\s*:\s*\n(?:\s*-\s*[^\n]*\n)*?\s*-\s*["']?self-hosted\b/m.test(code)) return true;
+  if (selfHostedJob(text)) return true;
   if (/uses:\s*["']?[\w.-]+\/(?:ssh|scp|rsync)[\w.-]*-action\b/i.test(code)) return true;
   for (const m of code.matchAll(/(?:^|[\s;&|(`"'])(ssh|scp|rsync)\s+([^\n;&|]*)/g)) {
     const args = m[2];
